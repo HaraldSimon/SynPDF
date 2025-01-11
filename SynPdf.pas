@@ -1143,6 +1143,8 @@ type
   /// set of font styles
   TPdfFontStyles = set of TPdfFontStyle;
 
+  TPdfAFRelationship = (afrUnspecified, afrSource, afrData, afrAlternative, afrSupplement);
+
   /// the main class of the PDF engine, processing the whole PDF document
   TPdfDocument = class(TObject)
   protected
@@ -1290,6 +1292,8 @@ type
     /// add then register an object (typicaly a TPdfImage) to the PDF document
     // - returns the internal index as added in FXObjectList[]
     function AddXObject(const AName: PDFString; AXObject: TPdfXObject): integer;
+    /// embedd filedata from a stream
+    function AddEmbeddedStream(Stream : TStream; const StreamName, Description, DataType : PDFString; CreationDate, ModDate : TDateTime; AFRelationship : TPdfAFRelationship) : Boolean;
     /// save the PDF file content into a specified Stream
     procedure SaveToStream(AStream: TStream; ForceModDate: TDateTime=0); virtual;
     /// prepare to save the PDF file content into a specified Stream
@@ -5816,6 +5820,95 @@ begin
     raise EPdfInvalidValue.CreateFmt('AddXObject: invalid TPdfImage %s', [AName]);
   FXref.AddObject(AXObject);
   result := RegisterXObject(AXObject, AName);
+end;
+
+function TPdfDocument.AddEmbeddedStream(Stream : TStream; const StreamName, Description, DataType : PDFString; CreationDate, ModDate : TDateTime; AFRelationship : TPdfAFRelationship) : Boolean;
+const
+  AFRelationshipNames : Array[TPdfAFRelationship] of PDFString = ('Unspecified', 'Source', 'Data', 'Alternative', 'Supplement');
+var
+  DicoNames, DicoEmbeddedFiles, DicoFileSpec, DicoFileRef, DicoFileDesc : TPdfDictionary;
+  aFiles, aAssociatedFiles : TPdfArray;
+  PDFStream : TPdfStream;
+begin
+  Result:=false;
+  if (fPDFA < pdfa3B) and (fPDFA <> pdfaNone) then
+    Exit;
+
+  if (not Assigned(Stream)) or (Description = '') or (DataType = '') then
+    Exit;
+
+  if fFileFormat<pdf16 then
+    fFileFormat:=pdf16;
+
+  aAssociatedFiles:=TPdfArray(FRoot.Data.ValueByName('AF'));       // ISO 32000-2, 14.13, also in PDF/A-3B   https://www.loc.gov/preservation/digital/formats/fdd/fdd000360.shtml
+  if not Assigned(aAssociatedFiles) then
+  begin
+    aAssociatedFiles:=TPdfArray.Create(FXref);
+    FXref.AddObject(aAssociatedFiles);
+
+    FRoot.Data.AddItem('AF',aAssociatedFiles);
+  end;
+
+  DicoNames:=TPdfDictionary(FRoot.Data.ValueByName('Names'));
+  if Assigned(DicoNames) then
+  begin
+    DicoEmbeddedFiles:=TPdfDictionary(DicoNames.ValueByName('EmbeddedFiles'));
+  end
+  else
+  begin
+    DicoNames:=TPdfDictionary.Create(FXref);
+    FRoot.Data.AddItem('Names',DicoNames);
+    DicoEmbeddedFiles:=nil;
+  end;
+
+  if Assigned(DicoEmbeddedFiles) then
+  begin
+    aFiles:=TPdfArray(DicoEmbeddedFiles.ValueByName('Names'));
+  end
+  else
+  begin
+    DicoEmbeddedFiles:=TPdfDictionary.Create(FXRef);
+    DicoNames.AddItem('EmbeddedFiles', DicoEmbeddedFiles);
+    aFiles:=nil;
+  end;
+
+  if not Assigned(aFiles) then
+  begin
+    aFiles:=TPdfArray.Create(FXref);
+    DicoEmbeddedFiles.AddItem('Names', aFiles);
+  end;
+
+  DicoFileDesc := TPdfDictionary.Create(FXRef);
+  DicoFileDesc.AddItem('Size', Stream.Size);
+  DicoFileDesc.AddItemText('CreationDate', _DateTimeToPdfDate(CreationDate));
+  DicoFileDesc.AddItemText('ModDate', _DateTimeToPdfDate(ModDate));
+
+  PDFStream:=TPdfStream.Create(Self);
+  PDFStream.Writer.fDestStream.CopyFrom(Stream);
+  PDFStream.Writer.fDestStreamPosition:=PDFStream.Writer.fDestStream.Position;
+  PDFStream.FAttributes.AddItem('Type', 'EmbeddedFile');
+  PDFStream.FAttributes.AddItem('Subtype', DataType);
+  PDFStream.FAttributes.AddItem('Params', DicoFileDesc);
+
+  DicoFileRef:=TPdfDictionary.Create(FXRef);
+  DicoFileRef.AddItem('UF', PDFStream);
+  DicoFileRef.AddItem('F', PDFStream);
+
+  DicoFileSpec := TPdfDictionary.Create(FXRef);
+  FXref.AddObject(DicoFileSpec);
+  DicoFileSpec.AddItem('Type', 'Filespec');
+  DicoFileSpec.AddItemText('Desc', Description);
+  DicoFileSpec.AddItemText('UF', StreamName);
+  DicoFileSpec.AddItemText('F', StreamName);
+  DicoFileSpec.AddItem('AFRelationship', AFRelationshipNames[AFRelationship]); // ISO 32000-2, 14.13, also in PDF/A-3B   https://www.loc.gov/preservation/digital/formats/fdd/fdd000360.shtml
+  DicoFileSpec.AddItem('EF', DicoFileRef);
+
+  aFiles.AddItem(TPdfText.Create(StreamName));
+  aFiles.AddItem(DicoFilespec);
+
+  aAssociatedFiles.AddItem(DicoFilespec);
+
+  Result:=true;
 end;
 
 function TPdfDocument.AddPage: TPdfPage;
