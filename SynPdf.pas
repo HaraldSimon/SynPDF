@@ -1203,6 +1203,9 @@ type
     fCurrentObjectNumber: integer;
     fCurrentGenerationNumber: integer;
     {$endif USE_PDFSECURITY}
+
+    fPDFMetaDataExtention : PDFString;
+
     function GetGeneratePDF15File: boolean;
     procedure SetGeneratePDF15File(const Value: boolean);
     function GetInfo: TPdfInfo;     {$ifdef HASINLINE}inline;{$endif}
@@ -1511,6 +1514,8 @@ type
     {$endif}
     /// set to TRUE to force PDF 1.5 format, which may produce smaller files
     property GeneratePDF15File: boolean read GetGeneratePDF15File write SetGeneratePDF15File;
+	// Property for specifying additional metadata
+	property PDFMetaDataExtention : PDFString read fPDFMetaDataExtention write fPDFMetaDataExtention;
   end;
 
   /// a PDF page
@@ -5423,6 +5428,8 @@ constructor TPdfDocument.Create(AUseOutlines: Boolean; ACodePage: integer;
 var LFont: TLogFontW; // TLogFontW to add to FTrueTypeFonts array as UTF-8
     i: integer;
 begin
+  fPDFMetaDataExtention:='';
+
   {$ifdef USE_PDFALEVEL]}
   fPDFA:=APDFA;
   {$else}
@@ -6029,7 +6036,7 @@ begin
       '<pdf:Producer>'+PDF_PRODUCER+'</pdf:Producer></rdf:Description>'+
       '<rdf:Description rdf:about="" xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">'+
       '<pdfaid:part>'+PDFAPART[PDFA]+'</pdfaid:part><pdfaid:conformance>'+PDFACONFORMANCE[PDFA]+'</pdfaid:conformance>'+
-      '</rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>');
+      '</rdf:Description>'+fPDFMetaDataExtention +'</rdf:RDF></x:xmpmeta><?xpacket end="w"?>');
   end;
   // write beginning of the content
   fSaveToStreamWriter := TPdfWrite.Create(self,AStream);
